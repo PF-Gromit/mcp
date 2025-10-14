@@ -86,7 +86,7 @@ class MariaDBServer:
                 "minsize": 1,
                 "maxsize": MCP_MAX_POOL_SIZE,
                 "autocommit": self.autocommit,
-                "pool_recycle": 3600
+                "pool_recycle": 60
             }
             
             if DB_CHARSET:
