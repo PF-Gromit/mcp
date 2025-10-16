@@ -125,7 +125,7 @@ class MariaDBServer:
             logger.error("Connection pool is not initialized.")
             raise RuntimeError("Database connection pool not available.")
 
-        allowed_prefixes = ('SELECT', 'SHOW', 'DESC', 'DESCRIBE', 'USE')
+        allowed_prefixes = ('SELECT', 'SHOW', 'DESC', 'DESCRIBE', 'USE', 'EXPLAIN')
         
         # Strip SQL comments from query
         # Remove single-line comments (-- comment)
