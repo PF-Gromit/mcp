@@ -11,3 +11,6 @@ uv.lock
 .DS_Store
 .env
 .env
+
+# private
+table_details.json

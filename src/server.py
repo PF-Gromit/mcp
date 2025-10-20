@@ -4,12 +4,13 @@
 from config import (
     DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_CHARSET,
     MCP_READ_ONLY, MCP_MAX_POOL_SIZE, EMBEDDING_PROVIDER,
-    ALLOWED_ORIGINS, ALLOWED_HOSTS,
+    ALLOWED_ORIGINS, ALLOWED_HOSTS, TABLE_DETAILS_PATH,
     logger
 )
 
 import asyncio
 import argparse
+import json
 import re
 from typing import List, Dict, Any, Optional
 from functools import partial 
@@ -46,6 +47,16 @@ class MariaDBServer:
         logger.info(f"Initializing {server_name}...")
         if self.is_read_only:
             logger.warning("Server running in READ-ONLY mode. Write operations are disabled.")
+
+        self.table_details = {}
+        try:
+            with open(TABLE_DETAILS_PATH, "r", encoding="utf-8") as f:
+                self.table_details = json.load(f)
+            logger.info(f"Successfully loaded table details from {TABLE_DETAILS_PATH}.")
+        except FileNotFoundError:
+            logger.warning(f"{TABLE_DETAILS_PATH} not found. get_table_detail tool will return empty results.")
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse {TABLE_DETAILS_PATH}.")
 
     async def create_vector_store(self, database_name: str, vector_store_name: str, model_name: Optional[str] = None, distance_function: Optional[str] = None) -> dict:
         """
@@ -290,8 +301,8 @@ class MariaDBServer:
 
     async def get_table_schema(self, database_name: str, table_name: str) -> Dict[str, Any]:
         """
-        Retrieves the schema (column names, types, nullability, keys, default values)
-        for a specific table in a database.
+        Retrieves the schema for a specific table in a database,
+        and automatically includes business context from 'get_table_detail' if available.
         """
         logger.info(f"TOOL START: get_table_schema called. database_name={database_name}, table_name={table_name}")
         if not database_name or not database_name.isidentifier():
@@ -324,8 +335,19 @@ class MariaDBServer:
                         'default': row.get('Default'),
                         'extra': row.get('Extra')
                     }
+            
+            # --- Combine with table details ---
+            combined_result = {"schema": schema_info}
+            try:
+                table_details = await self.get_table_detail(database_name, table_name)
+                combined_result["details"] = table_details
+                logger.info(f"Successfully merged details for table '{table_name}'.")
+            except FileNotFoundError:
+                logger.info(f"No details found for table '{table_name}', returning schema only.")
+                combined_result["details"] = {"error": f"Details for table '{table_name}' not found."}
+
             logger.info(f"TOOL END: get_table_schema completed. Columns found: {len(schema_info)}. Keys: {list(schema_info.keys())}")
-            return schema_info
+            return combined_result
         except FileNotFoundError as e:
             logger.warning(f"TOOL WARNING: get_table_schema table not found: {e}")
             raise e
@@ -779,6 +801,26 @@ class MariaDBServer:
         except Exception as e:
             logger.error(f"Failed to search vector store {database_name}.{vector_store_name}: {e}", exc_info=True)
             return []
+
+    async def get_table_detail(self, database_name: str, table_name: str) -> Dict[str, Any]:
+        """
+        Retrieves detailed information about a table, including its usage and column descriptions,
+        from a predefined JSON file.
+        """
+        logger.info(f"TOOL START: get_table_detail called for table: '{table_name}' in database: '{database_name}'")
+
+        if not table_name or not table_name.isidentifier():
+            logger.warning(f"TOOL WARNING: get_table_detail called with invalid table_name: {table_name}")
+            raise ValueError(f"Invalid table name provided: {table_name}")
+
+        table_info = self.table_details.get(table_name)
+
+        if table_info:
+            logger.info(f"TOOL END: get_table_detail completed successfully for table '{table_name}'.")
+            return table_info
+        else:
+            logger.warning(f"TOOL WARNING: No details found for table '{table_name}' in table_details.json.")
+            raise FileNotFoundError(f"Details for table '{table_name}' not found.")
             
     # --- Tool Registration (Synchronous) ---
     def register_tools(self):
@@ -799,7 +841,10 @@ class MariaDBServer:
             
         @self.mcp.tool
         async def get_table_schema(database_name: str, table_name: str) -> Dict[str, Any]:
-            """Retrieves the schema for a specific table in a database."""
+            """
+            Retrieves the schema and business context for a specific table in a database.
+            This tool combines technical schema information with table/column descriptions from 'table_details.json'.
+            """
             return await self.get_table_schema(database_name, table_name)
             
         @self.mcp.tool
@@ -807,6 +852,11 @@ class MariaDBServer:
             """Retrieves table schema with foreign key relationship information."""
             return await self.get_table_schema_with_relations(database_name, table_name)
             
+        @self.mcp.tool
+        async def get_table_detail(database_name: str, table_name: str) -> Dict[str, Any]:
+            """Retrieves detailed usage and column descriptions for a table."""
+            return await self.get_table_detail(database_name, table_name)
+
         @self.mcp.tool
         async def execute_sql(sql_query: str, database_name: str, parameters: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
             """Executes a read-only SQL query against a specified database."""

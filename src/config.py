@@ -69,6 +69,7 @@ DB_CHARSET = os.getenv("DB_CHARSET")
 # Read-only mode
 MCP_READ_ONLY = os.getenv("MCP_READ_ONLY", "true").lower() == "true"
 MCP_MAX_POOL_SIZE = int(os.getenv("MCP_MAX_POOL_SIZE", 10))
+TABLE_DETAILS_PATH = os.getenv("TABLE_DETAILS_PATH", "src/table_details.json")
 
 # --- Embedding Configuration ---
 # Provider selection ('openai' or 'gemini' or 'huggingface')
